@@ -131,8 +131,8 @@ Param(
 
 $SRCLANG = "en"
 $AUTH = @{
-	id = 'bitXsa';
-	secret = 'tAUNFs1MF4PpcfmoN2UmpoAHiTnLDRo45ZciC/8WwnE='
+	id = '';
+	secret = ''
 }
 
 # --- support functionality ---------------------------------------
