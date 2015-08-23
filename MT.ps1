@@ -1,21 +1,13 @@
-Param(
-	[switch] $recurse = $false,
-	[switch] $debug = $false,
-	[switch] $quiet = $false,
-	$prj, $fn, $lang,
-	[string] $text
-)
-
 #
 #	Microsoft Translator (Azure)
 #	Powershell Script for Visual Studio
 #
-#	- Synopsis -
+#	- synopsis -
 #
 #	This script uses the Azure translator service to
 #	translate resource files within a Visual Studio project
 #
-#	- Syntax -
+#	- syntax -
 #
 #	text: accepts a string to translate.  this parameter
 #		supercedes all others
@@ -43,7 +35,7 @@ Param(
 #
 #	quiet: suppresses all non-essential output
 #
-#	- Exempli Gratia -
+#	- exempli gratia -
 #
 #	To tranlate the word "whatever" into Danish:
 #
@@ -80,7 +72,7 @@ Param(
 #
 #		> MT -d -r ResX
 #
-#	- Integration -
+#	- integration -
 #
 #	To use this script:
 #
@@ -108,7 +100,7 @@ Param(
 #	  <appSettings>
 #	    <add key="SupportedLanguages" value="da-DK de-DE" />
 #
-#	- Notes -
+#	- notes -
 #
 #	The script will traverse the directories requested and
 #	compare target file timestamps with the source file e.g.
@@ -116,16 +108,24 @@ Param(
 #	file does not exist or its timestamp is older than the
 #	source, it will be translated
 #
-#	- Marginalia -
+#	- marginalia -
 #
 #	Author: Erick Calder <e@arix.com>
 #	Date:	22-VIII-15
 #	
-#	- Support -
+#	- support -
 #
 #	For support post on the github Issues section.  Patches
 #	welcome.
 #
+
+Param(
+	[switch] $recurse = $false,
+	[switch] $debug = $false,
+	[switch] $quiet = $false,
+	$prj, $fn, $lang,
+	[string] $text
+)
 
 # --- configuration -----------------------------------------------
 
@@ -137,13 +137,13 @@ $AUTH = @{
 
 # --- support functionality ---------------------------------------
 
-$version = "0.29"
+$version = "0.30"
 
 function Coalesce($a, $b) { if ($a -ne $null) { $a } else { $b } }
 New-Alias "??" Coalesce -Force
 
 function IfElse($cond, $t, $f) { if ($cond) { $t } else { $b } }
-New-Alias "?:" IfElse
+New-Alias "?:" IfElse -Force
 
 Add-Type -AssemblyName System.Web
 function urlenc([string] $s) {
@@ -215,8 +215,10 @@ function str_chunk([string] $s, $size = 8000) {
 }
 
 function tx($text, $to) {
-	$tx = "http://api.microsofttranslator.com/v2/Http.svc/Translate"
 	$ret = ""
+	$tx = "http://api.microsofttranslator.com/v2/Http.svc/Translate"
+	$auth = @{Authorization = $(token)}
+
 	# the api has a 10241 character limit so we must chunk
 	str_chunk $text |%{
 		$args = @(
@@ -225,9 +227,14 @@ function tx($text, $to) {
 			"to=$to"
 		)
 		$uri = $tx + "?" + ($args -join "&")
-		$auth = @{Authorization = $(token)}
-		$res = Invoke-RestMethod -Uri $uri -Headers $auth
-		$ret += $res.string.'#text'
+		try {
+			$res = Invoke-RestMethod -Uri $uri -Headers $auth
+			$ret += $res.string.'#text'
+		}
+		catch {
+			write-error $_.Exception
+			return ""
+		}
 	}
 	$ret
 }
@@ -238,6 +245,22 @@ function log($s) {
 
 function title($s) {
 	echo "*`n* $s`n*"
+}
+
+$xmldelim = "{MT}"
+function xmlget([xml] $x) {
+	$ret = @()
+	for ($i = 0; $i -lt $x.root.data.length; $i++) {
+		$ret += $x.root.data[$i].value
+	}
+	$ret -join $xmldelim
+}
+
+function xmlset([xml] $x, $values) {
+	$values = $values.split($xmldelim)
+	for ($i = 0; $i -lt $x.root.data.length; $i++) {
+		$x.root.data[$i].value = $values[$i]
+	}
 }
 
 # --- main workflow -----------------------------------------------
@@ -261,6 +284,10 @@ if ($text) {
 	return
 }
 
+# if the path given points to a directory
+# expand into an array of the files within
+# recursing when requested
+
 if (-f $fn -pathType container) {
 	log "expanding directory"
 	$r = ?: $recurse "-r" ""
@@ -269,11 +296,14 @@ if (-f $fn -pathType container) {
 	}
 }
 
+# translate each file
+
 $fn |%{
 	$fn = $_
 	if ($fn -is [string]) { $fn = dir $fn }
+	[xml] $x = cat -raw $fn
+	$values = xmlget $x
 	lang |%{
-		$text = cat -raw $fn
 		$xfn = $fn.FullName.replace(".resx", ".${_}.resx")
 		$xok = !(-f $xfn)
 		if (!$xok) {
@@ -283,7 +313,8 @@ $fn |%{
 		}
 		if ($xok) {
 			log "Translating: $($xfn.replace($prj, """))"
-			tx $text $_ > $xfn
+			xmlset $x (tx $values $_)
+			$x.Save($xfn)
 		}
 		else {
 			log "$xfn is up to date"
