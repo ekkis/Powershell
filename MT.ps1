@@ -2,12 +2,12 @@
 #	Microsoft Translator (Azure)
 #	Powershell Script for Visual Studio
 #
-#	- synopsis -
+#	- Synopsis -
 #
 #	This script uses the Azure translator service to
 #	translate resource files within a Visual Studio project
 #
-#	- syntax -
+#	- Syntax -
 #
 #	text: accepts a string to translate.  this parameter
 #		supercedes all others
@@ -28,6 +28,12 @@
 #		which consists of a list of space-separated
 #		language-locality codes
 #
+#	force: the script will only generate a translation when
+#		either the target language file does not exist, or
+#		it exists but its timestamp is older than that of
+#		the source file.  this parameter forces a translation
+#		regardless of the aforementioned logic
+#
 #	debug: allows logging; when used in a Visual Studio
 #		project, leaves information in the Output log indicating
 #		whether a file was translated or was found to be
@@ -35,7 +41,7 @@
 #
 #	quiet: suppresses all non-essential output
 #
-#	- exempli gratia -
+#	- Exempli Gratia -
 #
 #	To tranlate the word "whatever" into Danish:
 #
@@ -72,7 +78,7 @@
 #
 #		> MT -d -r ResX
 #
-#	- integration -
+#	- Integration -
 #
 #	To use this script:
 #
@@ -100,7 +106,7 @@
 #	  <appSettings>
 #	    <add key="SupportedLanguages" value="da-DK de-DE" />
 #
-#	- notes -
+#	- Notes -
 #
 #	The script will traverse the directories requested and
 #	compare target file timestamps with the source file e.g.
@@ -108,12 +114,12 @@
 #	file does not exist or its timestamp is older than the
 #	source, it will be translated
 #
-#	- marginalia -
+#	- Marginalia -
 #
 #	Author: Erick Calder <e@arix.com>
 #	Date:	22-VIII-15
 #	
-#	- support -
+#	- Support -
 #
 #	For support post on the github Issues section.  Patches
 #	welcome.
@@ -123,6 +129,7 @@ Param(
 	[switch] $recurse = $false,
 	[switch] $debug = $false,
 	[switch] $quiet = $false,
+	[switch] $force = $false,
 	$prj, $fn, $lang,
 	[string] $text
 )
@@ -137,7 +144,7 @@ $AUTH = @{
 
 # --- support functionality ---------------------------------------
 
-$version = "0.30"
+$version = "0.31"
 
 function Coalesce($a, $b) { if ($a -ne $null) { $a } else { $b } }
 New-Alias "??" Coalesce -Force
@@ -257,9 +264,11 @@ function xmlget([xml] $x) {
 }
 
 function xmlset([xml] $x, $values) {
-	$values = $values.split($xmldelim)
+	$values = $values -split $xmldelim
 	for ($i = 0; $i -lt $x.root.data.length; $i++) {
-		$x.root.data[$i].value = $values[$i]
+		$val = $values[$i].trim()
+		if (!$val) { $val = "* " + $x.root.data[$i].value + " *" }
+		$x.root.data[$i].value = $val
 	}
 }
 
@@ -311,6 +320,7 @@ $fn |%{
 			$xft = (dir $xfn)[0].LastWriteTime
 			$xok = $fnt -gt $xft
 		}
+		if (!$xok) { $xok = $force }
 		if ($xok) {
 			log "Translating: $($xfn.replace($prj, """))"
 			xmlset $x (tx $values $_)
